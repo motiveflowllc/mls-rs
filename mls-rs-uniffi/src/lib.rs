@@ -189,6 +189,25 @@ impl From<mls_rs::MlsMessage> for Message {
     }
 }
 
+#[uniffi::export]
+impl Message {
+    /// Serialize this MLS message to its RFC 9420 wire-format bytes.
+    ///
+    /// Wraps [`mls_rs::MlsMessage::to_bytes`].
+    pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        self.inner.to_bytes().map_err(Into::into)
+    }
+
+    /// Parse a serialized MLS message from RFC 9420 wire-format bytes.
+    ///
+    /// Wraps [`mls_rs::MlsMessage::from_bytes`].
+    #[uniffi::constructor]
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        let inner = mls_rs::MlsMessage::from_bytes(bytes)?;
+        Ok(Self { inner })
+    }
+}
+
 #[derive(Clone, Debug, uniffi::Object)]
 pub struct Proposal {
     // FIXME: This isn't very useful because we get no details about the
@@ -610,6 +629,28 @@ impl Group {
     pub async fn export_tree(&self) -> Result<RatchetTree, Error> {
         let group = self.inner().await;
         group.export_tree().try_into()
+    }
+
+    /// Export a secret derived from the current epoch's exporter secret.
+    ///
+    /// Each `(epoch, label, context)` triple produces a unique secret of `len`
+    /// bytes. The same `(label, context, len)` evaluated on different members
+    /// of the same group at the same epoch yields identical bytes — making this
+    /// suitable for deriving sub-protocol keys (e.g., per-session ratchet keys
+    /// in AgentVault, SFrame keys, etc.) outside of MLS itself.
+    ///
+    /// Wraps [`mls_rs::Group::export_secret`].
+    pub async fn export_secret(
+        &self,
+        label: &[u8],
+        context: &[u8],
+        len: u32,
+    ) -> Result<Vec<u8>, Error> {
+        let group = self.inner().await;
+        let secret = group
+            .export_secret(label, context, len as usize)
+            .await?;
+        Ok(secret.as_bytes().to_vec())
     }
 
     /// Perform a commit of received proposals (or an empty commit).
