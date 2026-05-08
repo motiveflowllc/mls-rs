@@ -1,0 +1,41 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "agentvault-mls-rs-uniffi"
+version = "0.1.0"
+description = "AgentVault's patched UniFFI Python bindings for mls-rs (RFC 9420 MLS)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0 OR MIT" }
+authors = [
+    { name = "MotiveFlow LLC" },
+]
+keywords = ["mls", "rfc9420", "e2ee", "cryptography", "uniffi"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Rust",
+    "Topic :: Security :: Cryptography",
+]
+
+[project.urls]
+Homepage = "https://github.com/motiveflowllc/mls-rs"
+Repository = "https://github.com/motiveflowllc/mls-rs"
+Issues = "https://github.com/motiveflowllc/mls-rs/issues"
+
+[tool.maturin]
+bindings = "uniffi"
+features = ["vendored-openssl", "uniffi-bindgen-binary"]
+strip = true

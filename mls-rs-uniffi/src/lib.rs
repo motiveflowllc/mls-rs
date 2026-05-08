@@ -647,9 +647,7 @@ impl Group {
         len: u32,
     ) -> Result<Vec<u8>, Error> {
         let group = self.inner().await;
-        let secret = group
-            .export_secret(label, context, len as usize)
-            .await?;
+        let secret = group.export_secret(label, context, len as usize).await?;
         Ok(secret.as_bytes().to_vec())
     }
 

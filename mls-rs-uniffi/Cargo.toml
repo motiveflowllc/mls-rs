@@ -14,15 +14,43 @@ rust-version = "1.82.0"
 crate-type = ["lib", "cdylib"]
 name = "mls_rs_uniffi"
 
+# Bindgen binary alias for maturin's UniFFI auto-detection.
+# Maturin runs `cargo run --bin uniffi-bindgen` scoped to this package; without
+# a target of that name here it fails. The `required-features` gate keeps the
+# clap-pulling `uniffi/cli` dependency out of plain library builds — it only
+# activates when this binary is actually being built (i.e. during wheel build).
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+required-features = ["uniffi-bindgen-binary"]
+
 [dependencies]
 async-trait = "0.1.77"
 maybe-async = "0.2.10"
 mls-rs = { version = "0.55.0", path = "../mls-rs" }
 mls-rs-core = { version = "0.27.0", path = "../mls-rs-core" }
 mls-rs-crypto-openssl = { version = "0.21.0", path = "../mls-rs-crypto-openssl" }
+# Direct openssl dep declared optional purely so the `vendored-openssl` feature
+# below can flip on `openssl/vendored`. Cargo feature unification then propagates
+# the vendored build to mls-rs-crypto-openssl's transitive openssl-sys dep,
+# producing a self-contained wheel with no system OpenSSL dependency.
+openssl = { version = "0.10", optional = true }
 thiserror = "2"
 uniffi = { version = "0.31" }
 zeroize = "1"
+
+[features]
+# Enable when building distributable wheels: statically links OpenSSL into the
+# resulting cdylib so the wheel runs on any host without a matching libssl.
+vendored-openssl = ["openssl/vendored"]
+
+# Enables the uniffi-bindgen alias binary defined above. Maturin activates
+# this when generating Python bindings during wheel build. Pulls in the
+# vendored OpenSSL because maturin's bindgen invocation re-resolves deps
+# in a separate cargo run, and the workspace's transitive openssl-sys
+# (via mls-rs-crypto-openssl) would otherwise try to find a system libssl
+# and fail on hosts without one (notably Windows runners).
+uniffi-bindgen-binary = ["uniffi/cli", "openssl/vendored"]
 
 [target.'cfg(mls_build_async)'.dependencies]
 tokio = { version = "1.36.0", features = ["sync"] }

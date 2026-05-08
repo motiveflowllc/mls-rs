@@ -1,0 +1,110 @@
+name: Release wheels to PyPI
+
+on:
+  push:
+    tags:
+      - 'v*'
+  pull_request:
+    paths:
+      - 'mls-rs-uniffi/**'
+      - '.github/workflows/release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build_wheels:
+    name: Build ${{ matrix.os }} (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            manylinux: manylinux2014
+          - os: macos-latest
+            target: universal2-apple-darwin
+            manylinux: ''
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            manylinux: ''
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          working-directory: mls-rs-uniffi
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux }}
+          args: >-
+            --release
+            --out dist
+            --features vendored-openssl
+            -i 3.10 3.11 3.12 3.13
+          before-script-linux: |
+            # OpenSSL 3.x's vendored build script needs perl-IPC-Cmd,
+            # perl-Module-Load-Conditional, and Time::Piece. perl-File-Compare
+            # is part of core perl on CentOS 7 (manylinux2014 base) so no
+            # separate package is needed for that one.
+            if command -v dnf &>/dev/null; then
+              dnf install -y perl-IPC-Cmd perl-Module-Load-Conditional perl-Time-Piece make
+            elif command -v yum &>/dev/null; then
+              yum install -y perl-IPC-Cmd perl-Module-Load-Conditional perl-Time-Piece make
+            elif command -v apt-get &>/dev/null; then
+              apt-get update && apt-get install -y perl make
+            fi
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}-${{ matrix.target }}
+          path: mls-rs-uniffi/dist/*.whl
+          retention-days: 7
+
+  build_sdist:
+    name: Build sdist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build sdist
+        uses: PyO3/maturin-action@v1
+        with:
+          working-directory: mls-rs-uniffi
+          command: sdist
+          args: --out dist
+
+      - name: Upload sdist
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: mls-rs-uniffi/dist/*.tar.gz
+          retention-days: 7
+
+  publish:
+    name: Publish to PyPI
+    needs: [build_wheels, build_sdist]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    environment:
+      name: pypi-release
+      url: https://pypi.org/project/agentvault-mls-rs-uniffi/
+    permissions:
+      id-token: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish to PyPI via OIDC trusted publishing
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist

@@ -152,6 +152,9 @@ fn private_key_from_bytes_nist(
     let mut pk_val = EcPoint::new(&group)?;
 
     if with_public {
+        // openssl 0.10.79 deprecated mul_generator in favor of mul_generator2.
+        // Kept here pending an upstream awslabs/mls-rs PR migrating call sites.
+        #[allow(deprecated)]
         pk_val.mul_generator(&group, &sk_val, &ctx)?;
     }
 
