@@ -45,8 +45,12 @@ zeroize = "1"
 vendored-openssl = ["openssl/vendored"]
 
 # Enables the uniffi-bindgen alias binary defined above. Maturin activates
-# this when generating Python bindings during wheel build.
-uniffi-bindgen-binary = ["uniffi/cli"]
+# this when generating Python bindings during wheel build. Pulls in the
+# vendored OpenSSL because maturin's bindgen invocation re-resolves deps
+# in a separate cargo run, and the workspace's transitive openssl-sys
+# (via mls-rs-crypto-openssl) would otherwise try to find a system libssl
+# and fail on hosts without one (notably Windows runners).
+uniffi-bindgen-binary = ["uniffi/cli", "openssl/vendored"]
 
 [target.'cfg(mls_build_async)'.dependencies]
 tokio = { version = "1.36.0", features = ["sync"] }
