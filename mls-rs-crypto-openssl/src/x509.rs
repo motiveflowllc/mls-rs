@@ -651,6 +651,13 @@ mod tests {
     }
 
     #[test]
+    // GitHub macos-14 runners ship a system CA bundle that doesn't include the
+    // issuer used by load_test_system_cert_chain(), so validate_chain() returns
+    // ChainValidationFailure("unable to get local issuer certificate") and the
+    // unwrap() below panics. Test passes on Linux runners (different CA bundle
+    // contents). Skipping on macOS pending an upstream refresh of the test
+    // chain's issuer or a runner-side CA fix.
+    #[cfg_attr(target_os = "macos", ignore = "macOS runner CA bundle mismatch")]
     fn can_validate_against_system_ca_list() {
         let chain = load_test_system_cert_chain();
 
