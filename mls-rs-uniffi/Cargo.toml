@@ -20,9 +20,19 @@ maybe-async = "0.2.10"
 mls-rs = { version = "0.55.0", path = "../mls-rs" }
 mls-rs-core = { version = "0.27.0", path = "../mls-rs-core" }
 mls-rs-crypto-openssl = { version = "0.21.0", path = "../mls-rs-crypto-openssl" }
+# Direct openssl dep declared optional purely so the `vendored-openssl` feature
+# below can flip on `openssl/vendored`. Cargo feature unification then propagates
+# the vendored build to mls-rs-crypto-openssl's transitive openssl-sys dep,
+# producing a self-contained wheel with no system OpenSSL dependency.
+openssl = { version = "0.10", optional = true }
 thiserror = "2"
 uniffi = { version = "0.31" }
 zeroize = "1"
+
+[features]
+# Enable when building distributable wheels: statically links OpenSSL into the
+# resulting cdylib so the wheel runs on any host without a matching libssl.
+vendored-openssl = ["openssl/vendored"]
 
 [target.'cfg(mls_build_async)'.dependencies]
 tokio = { version = "1.36.0", features = ["sync"] }
