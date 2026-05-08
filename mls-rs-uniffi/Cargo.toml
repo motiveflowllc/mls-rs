@@ -14,6 +14,16 @@ rust-version = "1.82.0"
 crate-type = ["lib", "cdylib"]
 name = "mls_rs_uniffi"
 
+# Bindgen binary alias for maturin's UniFFI auto-detection.
+# Maturin runs `cargo run --bin uniffi-bindgen` scoped to this package; without
+# a target of that name here it fails. The `required-features` gate keeps the
+# clap-pulling `uniffi/cli` dependency out of plain library builds — it only
+# activates when this binary is actually being built (i.e. during wheel build).
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+required-features = ["uniffi-bindgen-binary"]
+
 [dependencies]
 async-trait = "0.1.77"
 maybe-async = "0.2.10"
@@ -33,6 +43,10 @@ zeroize = "1"
 # Enable when building distributable wheels: statically links OpenSSL into the
 # resulting cdylib so the wheel runs on any host without a matching libssl.
 vendored-openssl = ["openssl/vendored"]
+
+# Enables the uniffi-bindgen alias binary defined above. Maturin activates
+# this when generating Python bindings during wheel build.
+uniffi-bindgen-binary = ["uniffi/cli"]
 
 [target.'cfg(mls_build_async)'.dependencies]
 tokio = { version = "1.36.0", features = ["sync"] }

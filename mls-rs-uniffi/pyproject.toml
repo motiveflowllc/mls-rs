@@ -37,5 +37,5 @@ Issues = "https://github.com/motiveflowllc/mls-rs/issues"
 
 [tool.maturin]
 bindings = "uniffi"
-features = ["vendored-openssl"]
+features = ["vendored-openssl", "uniffi-bindgen-binary"]
 strip = true

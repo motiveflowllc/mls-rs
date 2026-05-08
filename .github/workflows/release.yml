@@ -48,10 +48,13 @@ jobs:
             --features vendored-openssl
             -i 3.10 3.11 3.12 3.13
           before-script-linux: |
+            # OpenSSL 3.x's vendored build script needs perl-IPC-Cmd and
+            # perl-Module-Load-Conditional. perl-File-Compare is part of
+            # core perl on CentOS 7 (manylinux2014 base), no separate pkg.
             if command -v dnf &>/dev/null; then
-              dnf install -y perl-IPC-Cmd perl-Module-Load-Conditional perl-File-Compare make
+              dnf install -y perl-IPC-Cmd perl-Module-Load-Conditional make
             elif command -v yum &>/dev/null; then
-              yum install -y perl-IPC-Cmd perl-Module-Load-Conditional perl-File-Compare make
+              yum install -y perl-IPC-Cmd perl-Module-Load-Conditional make
             elif command -v apt-get &>/dev/null; then
               apt-get update && apt-get install -y perl make
             fi
