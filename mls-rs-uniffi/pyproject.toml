@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "agentvault-mls-rs-uniffi"
-version = "0.1.0"
+version = "0.1.1"
 description = "AgentVault's patched UniFFI Python bindings for mls-rs (RFC 9420 MLS)"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -38,4 +38,13 @@ Issues = "https://github.com/motiveflowllc/mls-rs/issues"
 [tool.maturin]
 bindings = "uniffi"
 features = ["vendored-openssl", "uniffi-bindgen-binary"]
-strip = true
+# strip=false is REQUIRED for UniFFI on Linux. uniffi-bindgen reads metadata
+# embedded in the compiled cdylib (the `__UNIFFI_PROC_MACRO_METADATA` symbol
+# inserted by the uniffi proc-macros) to generate the Python wrapper. GNU
+# strip on Linux removes those symbols by default; macOS strip is more
+# conservative and preserves them. With strip=true the v0.1.0 manylinux2014
+# wheel shipped with no `mls_rs_uniffi.py` (empty `__init__.py` + .so only),
+# breaking every Linux consumer at module-load time. macOS/Windows wheels
+# were unaffected. Larger wheel (~6MB instead of 2.4MB on Linux) is the
+# trade-off for working bindings.
+strip = false
