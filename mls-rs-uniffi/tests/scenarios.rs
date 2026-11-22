@@ -54,3 +54,4 @@ generate_python_tests!(simple_scenario_sync, simple_scenario_async);
 generate_python_tests!(ratchet_tree_sync, ratchet_tree_async);
 generate_python_tests!(roster_update_sync, None);
 generate_python_tests!(export_secret_sync, None);
+generate_python_tests!(sender_leaf_sync, None);

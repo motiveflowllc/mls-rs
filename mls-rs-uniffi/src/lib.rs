@@ -18,6 +18,8 @@
 //! [UniFFI]: https://mozilla.github.io/uniffi-rs/
 
 mod config;
+#[cfg(all(test, not(mls_build_async)))]
+mod identity_rules_tests;
 
 use std::sync::Arc;
 
@@ -263,8 +265,17 @@ pub enum ReceivedMessage {
     /// The encoding of the data in the message is
     /// application-specific and is not determined by MLS.
     ApplicationMessage {
+        /// The member at the sender's leaf index in the CURRENT tree.
+        ///
+        /// For a message from a prior epoch that leaf may since have been
+        /// handed to someone else, so this can name the wrong member. Use
+        /// `sender_leaf` to decide who sent a message.
         sender: Arc<SigningIdentity>,
         data: Vec<u8>,
+        /// The sender, read from the tree of the epoch whose signature key
+        /// verified the message. `None` when that cannot be established
+        /// (see [`SenderLeaf`]).
+        sender_leaf: Option<SenderLeaf>,
     },
 
     /// A new commit was processed creating a new group state.
@@ -561,6 +572,60 @@ impl From<identity::SigningIdentity> for SigningIdentity {
     }
 }
 
+#[uniffi::export]
+impl SigningIdentity {
+    /// The identity bytes of a basic credential, or `None` when the
+    /// credential is not basic.
+    pub fn basic_identity(&self) -> Option<Vec<u8>> {
+        basic_identifier(&self.inner).map(<[u8]>::to_vec)
+    }
+}
+
+fn basic_identifier(signing_identity: &identity::SigningIdentity) -> Option<&[u8]> {
+    signing_identity
+        .credential
+        .as_basic()
+        .map(|basic| basic.identifier.as_slice())
+}
+
+/// Who sent an application message, read from the tree of the epoch that
+/// verified it.
+///
+/// Mirrors `DecryptResult.sender` of AgentVault's TypeScript client
+/// (agentvault-gen2 `packages/crypto/src/mls-sender-binding.ts`, #1800): the
+/// sender's leaf, its credential and the identity count all come from one
+/// tree, the one the message's signature was checked against.
+///
+/// - A message from the current epoch is read from the current tree.
+/// - A message from a prior epoch is reported only when the leaf at its
+///   `leaf_index` still carries the signature key that verified it. mls-rs
+///   keeps signature keys for prior epochs but not credentials, so this is
+///   the only way to name that epoch's leaf; it is the same key holder, and
+///   `BasicIdentityProvider::valid_successor` forbids an Update or UpdatePath
+///   from changing that leaf's identity. When the leaf has been removed or
+///   handed to another member, `sender_leaf` is `None`, never the new holder.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct SenderLeaf {
+    /// The sender's leaf index.
+    pub leaf_index: u32,
+    /// The sender leaf's signing identity (credential and signature key).
+    pub signing_identity: Arc<SigningIdentity>,
+    /// How many leaves of that tree hold a basic credential whose identity
+    /// is byte-identical to the sender's. `0` when the sender's credential
+    /// is not basic.
+    pub identity_leaf_count: u32,
+}
+
+/// Leaves among `members` whose basic identity is byte-identical to `identity`.
+fn identity_leaf_count(
+    members: impl Iterator<Item = identity::SigningIdentity>,
+    identity: &[u8],
+) -> u32 {
+    members
+        .filter(|member| basic_identifier(member) == Some(identity))
+        .count() as u32
+}
+
 /// An MLS end-to-end encrypted group.
 ///
 /// The group is used to send and process incoming messages and to
@@ -595,6 +660,47 @@ fn index_to_identity(
         .member_at_index(index)
         .ok_or(MlsError::InvalidNodeIndex(index))?;
     Ok(member.signing_identity)
+}
+
+/// The [`SenderLeaf`] of an application message from `sender_index`, which
+/// was verified with the keys of `message_epoch`. `current_epoch` is the
+/// group's epoch when the message was processed (an application message
+/// never changes it).
+#[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+#[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+async fn sender_leaf(
+    group: &mut mls_rs::Group<UniFFIConfig>,
+    sender_index: u32,
+    message_epoch: Option<u64>,
+    current_epoch: u64,
+) -> Result<Option<SenderLeaf>, Error> {
+    let Some(member) = group.member_at_index(sender_index) else {
+        return Ok(None);
+    };
+    match message_epoch {
+        // Verified against the current tree: the leaf is the one that signed.
+        Some(epoch) if epoch == current_epoch => {}
+        // Verified against a prior epoch's keys: only the same key holder.
+        Some(epoch) => {
+            let verifying_key = group.prior_epoch_signature_key(epoch, sender_index).await?;
+            if verifying_key.as_ref() != Some(&member.signing_identity.signature_key) {
+                return Ok(None);
+            }
+        }
+        None => return Ok(None),
+    }
+    let identity_leaf_count = match basic_identifier(&member.signing_identity) {
+        Some(identity) => identity_leaf_count(
+            group.roster().members_iter().map(|m| m.signing_identity),
+            identity,
+        ),
+        None => 0,
+    };
+    Ok(Some(SenderLeaf {
+        leaf_index: sender_index,
+        signing_identity: Arc::new(member.signing_identity.into()),
+        identity_leaf_count,
+    }))
 }
 
 /// Extract the basic credential identifier from a  from a key package.
@@ -780,13 +886,22 @@ impl Group {
         message: Arc<Message>,
     ) -> Result<ReceivedMessage, Error> {
         let message = arc_unwrap_or_clone(message);
+        // Read before processing: the epoch whose keys will verify the message.
+        let message_epoch = message.inner.epoch();
         let mut group = self.inner().await;
+        let current_epoch = group.current_epoch();
         match group.process_incoming_message(message.inner).await? {
             group::ReceivedMessage::ApplicationMessage(application_message) => {
-                let sender =
-                    Arc::new(index_to_identity(&group, application_message.sender_index)?.into());
+                let sender_index = application_message.sender_index;
+                let sender = Arc::new(index_to_identity(&group, sender_index)?.into());
+                let sender_leaf =
+                    sender_leaf(&mut group, sender_index, message_epoch, current_epoch).await?;
                 let data = application_message.data().to_vec();
-                Ok(ReceivedMessage::ApplicationMessage { sender, data })
+                Ok(ReceivedMessage::ApplicationMessage {
+                    sender,
+                    data,
+                    sender_leaf,
+                })
             }
             group::ReceivedMessage::Commit(commit_message) => {
                 let committer =
@@ -934,12 +1049,56 @@ mod tests {
 
         alice_group.write_to_storage()?;
 
-        let ReceivedMessage::ApplicationMessage { sender: _, data } = received_message else {
+        let ReceivedMessage::ApplicationMessage { data, .. } = received_message else {
             panic!("Wrong message type: {received_message:?}");
         };
         assert_eq!(data, b"hello, bob");
 
         Ok(())
+    }
+
+    #[test]
+    #[cfg(not(mls_build_async))]
+    fn test_basic_identity_and_identity_leaf_count() {
+        use mls_rs_core::identity::{Credential, CredentialType, CustomCredential};
+
+        let key = |b: u8| mls_rs::crypto::SignaturePublicKey::new(vec![b; 32]);
+        let basic_id = |id: &[u8], b: u8| {
+            identity::SigningIdentity::new(
+                BasicCredential::new(id.to_vec()).into_credential(),
+                key(b),
+            )
+        };
+        let custom = identity::SigningIdentity::new(
+            Credential::Custom(CustomCredential::new(
+                CredentialType::new(0xf000),
+                b"owner".to_vec(),
+            )),
+            key(9),
+        );
+
+        assert_eq!(
+            SigningIdentity::from(basic_id(b"owner", 1)).basic_identity(),
+            Some(b"owner".to_vec())
+        );
+        // A non-basic credential has no basic identity, even when its bytes match one.
+        assert_eq!(SigningIdentity::from(custom.clone()).basic_identity(), None);
+
+        // mls-rs never lets a Hermes client hold a tree like this one (the
+        // identity rules refuse it), so the count is tested on its own.
+        let members = || {
+            vec![
+                basic_id(b"owner", 1),
+                basic_id(b"bob", 2),
+                basic_id(b"owner", 3),
+                basic_id(b"OWNER", 4),
+                custom.clone(),
+            ]
+            .into_iter()
+        };
+        assert_eq!(identity_leaf_count(members(), b"owner"), 2);
+        assert_eq!(identity_leaf_count(members(), b"bob"), 1);
+        assert_eq!(identity_leaf_count(members(), b"nobody"), 0);
     }
 
     #[test]

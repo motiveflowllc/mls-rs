@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "agentvault-mls-rs-uniffi"
-version = "0.1.1"
+version = "0.1.2"
 description = "AgentVault's patched UniFFI Python bindings for mls-rs (RFC 9420 MLS)"
 readme = "README.md"
 requires-python = ">=3.10"

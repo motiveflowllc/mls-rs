@@ -923,6 +923,33 @@ where
         self.group_state().member_at_index(index)
     }
 
+    /// The signature key leaf `index` held in the retained prior epoch
+    /// `epoch_id`: the key an application message from that epoch was
+    /// verified with (a [`ReceivedMessage::ApplicationMessage`] decrypted in
+    /// a prior epoch carries its `sender_index` in that epoch's tree, not in
+    /// the current one).
+    ///
+    /// Prior epochs keep only signature keys, not credentials, so this is the
+    /// one piece of that epoch's leaf that can be read back. Returns `None`
+    /// when the epoch is not retained or the leaf was blank in it.
+    ///
+    /// AgentVault (#1800): lets a binding prove that the leaf now at `index`
+    /// is the one that signed an earlier-epoch frame.
+    #[cfg(all(feature = "prior_epoch", feature = "private_message"))]
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    pub async fn prior_epoch_signature_key(
+        &mut self,
+        epoch_id: u64,
+        index: u32,
+    ) -> Result<Option<crate::crypto::SignaturePublicKey>, MlsError> {
+        Ok(self
+            .state_repo
+            .get_epoch_mut(epoch_id)
+            .await?
+            .and_then(|epoch| epoch.signature_public_keys.get(index as usize).cloned())
+            .flatten())
+    }
+
     #[cfg(feature = "by_ref_proposal")]
     #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
     async fn proposal_message(
