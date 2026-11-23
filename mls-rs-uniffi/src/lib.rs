@@ -274,7 +274,9 @@ pub enum ReceivedMessage {
         data: Vec<u8>,
         /// The sender, read from the tree of the epoch whose signature key
         /// verified the message. `None` when that cannot be established
-        /// (see [`SenderLeaf`]).
+        /// (see [`SenderLeaf`]). A prior-epoch message whose sender leaf is
+        /// now blank never gets here: the `sender` lookup above raises
+        /// `InvalidNodeIndex` after decryption consumed the message key.
         sender_leaf: Option<SenderLeaf>,
     },
 
@@ -612,7 +614,9 @@ pub struct SenderLeaf {
     pub signing_identity: Arc<SigningIdentity>,
     /// How many leaves of that tree hold a basic credential whose identity
     /// is byte-identical to the sender's. `0` when the sender's credential
-    /// is not basic.
+    /// is not basic. For a prior-epoch message this is counted in the
+    /// CURRENT tree, not the verifying one (equivalent in practice: the tree
+    /// index never admits a duplicate identity into either).
     pub identity_leaf_count: u32,
 }
 
