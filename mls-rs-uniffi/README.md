@@ -6,11 +6,19 @@ AgentVault's patched UniFFI Python bindings for [mls-rs] (RFC 9420 Messaging Lay
 
 ## What's in this fork
 
-This is a fork of upstream `awslabs/mls-rs` published as a Python wheel. It adds three additive UniFFI exports needed for wire-format interop with [`ts-mls`](https://github.com/LukasMasuch/ts-mls):
+This is a fork of upstream `awslabs/mls-rs` published as a Python wheel. It adds UniFFI exports needed for wire-format interop with [`ts-mls`](https://github.com/LukasMasuch/ts-mls):
 
 - `Group.export_secret(label, context, len)` — RFC 9420 §8.5
 - `Message.to_bytes()` — serialize to wire bytes
 - `Message.from_bytes(bytes)` — deserialize from wire bytes
+
+Since 0.1.2 (AgentVault #1800) it also tells the application who sent each application message, read from the tree of the epoch that verified it:
+
+- `SigningIdentity.basic_identity()` — the basic credential identity bytes, or `None` for a non-basic credential
+- `ReceivedMessage.APPLICATION_MESSAGE.sender_leaf` — a `SenderLeaf(leaf_index, signing_identity, identity_leaf_count)`, or `None` when the leaf now at the sender's index no longer carries the key that verified a prior-epoch message (it was handed to another member). If that leaf has since been **blanked** (the sender was removed and nobody took the slot), `process_incoming_message` **raises** `InvalidNodeIndex` from the legacy `sender` lookup instead, after decryption has already consumed the message key; callers must catch it and treat the frame as undeliverable. Use `sender_leaf`, not `sender`, to decide who sent a message: `sender` is looked up in the *current* tree, so a message from a prior epoch can be attributed to whoever holds that leaf index now.
+- `mls_rs::Group::prior_epoch_signature_key(epoch, index)` (Rust only) — the signature key a leaf held in a retained prior epoch, which `sender_leaf` compares against the current leaf.
+
+`mls-rs-uniffi/src/identity_rules_tests.rs` pins, against hostile commits on real groups, that a client built this way refuses an identity-changing Update or UpdatePath, a commit adding an identity already in the tree (a remove + re-add of one identity in one commit still passes), and a Welcome into a tree holding one identity on two leaves.
 
 The patches are additive (no breaking changes) and are intended to be upstreamed to `awslabs/mls-rs`. Once upstreamed and a release is cut, this package will be deprecated in favor of the upstream wheel.
 
